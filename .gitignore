@@ -1,1 +1,2 @@
-/foto/
+/foto/*
+!/foto/.gitkeep
