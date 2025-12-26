@@ -3,36 +3,60 @@
 date_default_timezone_set('Asia/Jakarta');
 
 // Folder penyimpanan foto
-$folder = __DIR__ . "/foto/";
+$folder = __DIR__.'/foto/';
 
 // Cek folder
-if (!is_dir($folder)) { die("<h3>Folder 'foto/' tidak ditemukan!</h3>"); }
+if (!is_dir($folder)) {
+    exit("<h3>Folder 'foto/' tidak ditemukan!</h3>");
+}
 
 // Ambil semua file gambar
-$files = glob($folder . "*.{jpg,jpeg,png}", GLOB_BRACE);
-if (!$files) { die("<h3>Belum ada foto disimpan.</h3>"); }
+$files = glob($folder.'*.{jpg,jpeg,png}', GLOB_BRACE);
+if (!$files) {
+    exit('<h3>Belum ada foto disimpan.</h3>');
+}
 
 // =========================
 // FILTER (id -> label)
 // id=1 => Leyangan, id=2 => Pak Tommy
 // Deteksi id dari AWAL nama file: "1_", "2-", "1 " dll.
 // =========================
-$filter = isset($_GET['filter']) ? (int)$_GET['filter'] : 0; // 0=semua
+$filter = isset($_GET['filter']) ? (int) $_GET['filter'] : 0; // 0=semua
 $filterMap = [
-    1 => "Leyangan",
-    2 => "Pak Tommy",
+    1 => 'Leyangan',
+    2 => 'Pak Tommy',
 ];
 
-function getPhotoIdFromFilename(string $filename): int {
+function getPhotoIdFromFilename(string $filename): int
+{
     // Cocokkan digit pertama di awal filename: 1 atau 2, diikuti pemisah (_ - spasi .) atau langsung akhir
     if (preg_match('/^([12])(?:[_\-\s\.]|$)/', $filename, $m)) {
-        return (int)$m[1];
+        return (int) $m[1];
     }
+
     return 0; // tidak teridentifikasi
 }
 
-// Urutkan berdasarkan terakhir diubah
-usort($files, function($a, $b) { return filemtime($b) - filemtime($a); });
+/**
+ * Ambil timestamp foto dari nama file, contoh:
+ * 1_2025-12-26_17-39-47_660-660.jpg
+ *          ^^^^^^^^^^ ^^^^^^^^
+ * -> "2025-12-26 17:39:47"
+ *
+ * Return: unix timestamp (int) atau null jika tidak cocok.
+ */
+function getTimestampFromFilename(string $filename): ?int
+{
+    // Cocokkan pola: YYYY-MM-DD_HH-MM-SS (di mana pun dalam nama file)
+    if (preg_match('/(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})/', $filename, $m)) {
+        $datetime = $m[1].' '.str_replace('-', ':', $m[2]); // YYYY-MM-DD HH:MM:SS
+        $ts = strtotime($datetime);
+
+        return ($ts !== false) ? $ts : null;
+    }
+
+    return null;
+}
 
 // Siapkan data untuk setiap foto (sekaligus apply filter server-side)
 $photos = [];
@@ -46,10 +70,17 @@ foreach ($files as $file) {
         continue;
     }
 
-    $url = "foto/" . $filename;
+    $url = 'foto/'.$filename;
     $filesize = round(filesize($file) / 1024); // in KB
-    $modifiedTs = filemtime($file);
-    $modified = date("d M Y, H:i", $modifiedTs);
+
+    // =========================
+    // WAKTU FOTO: PRIORITAS dari NAMA FILE
+    // fallback: filemtime() jika nama tidak sesuai format
+    // =========================
+    $nameTs = getTimestampFromFilename($filename);
+    $modifiedTs = $nameTs ?? filemtime($file);
+
+    $modified = date('d M Y, H:i', $modifiedTs);
 
     $photos[] = [
         'id' => $photoId,
@@ -58,17 +89,18 @@ foreach ($files as $file) {
         'url' => $url,
         'size' => $filesize,
         'modified' => $modified,
-        'modified_ts' => $modifiedTs, // biar sorting tanggal akurat (jangan pakai strtotime dari string)
+        'modified_ts' => $modifiedTs, // sorting & tampilan pakai timestamp ini
     ];
 }
 
 // Ambil parameter sorting dari URL
-$sort  = isset($_GET['sort']) ? $_GET['sort'] : 'date';
+$sort = isset($_GET['sort']) ? $_GET['sort'] : 'date';
 $order = isset($_GET['order']) ? $_GET['order'] : 'desc';
 
 // Fungsi untuk mengurutkan foto
-function sortPhotos(&$photos, $sort, $order) {
-    usort($photos, function($a, $b) use ($sort, $order) {
+function sortPhotos(&$photos, $sort, $order)
+{
+    usort($photos, function ($a, $b) use ($sort, $order) {
         $result = 0;
 
         if ($sort === 'name') {
@@ -76,7 +108,7 @@ function sortPhotos(&$photos, $sort, $order) {
         } elseif ($sort === 'size') {
             $result = $a['size'] - $b['size'];
         } elseif ($sort === 'date') {
-            // pakai timestamp asli agar tidak salah
+            // pakai timestamp asli (dari nama file / fallback mtime) agar tidak salah
             $result = $b['modified_ts'] - $a['modified_ts'];
         }
 
@@ -91,12 +123,16 @@ sortPhotos($photos, $sort, $order);
 $totalPhotos = count($photos);
 
 // Helper untuk menjaga parameter URL saat ganti sort/filter
-function buildQuery(array $overrides = []): string {
+function buildQuery(array $overrides = []): string
+{
     $params = array_merge($_GET, $overrides);
     // hapus yang null
     foreach ($params as $k => $v) {
-        if ($v === null) unset($params[$k]);
+        if ($v === null) {
+            unset($params[$k]);
+        }
     }
+
     return http_build_query($params);
 }
 ?>
@@ -379,9 +415,9 @@ footer {
     <h1>📷 Galeri Foto</h1>
     <p>
         Total: <?php echo $totalPhotos; ?> foto
-        <?php if ($filter !== 0): ?>
+        <?php if ($filter !== 0) { ?>
             • Filter: <b><?php echo htmlspecialchars($filterMap[$filter] ?? 'Unknown'); ?></b>
-        <?php endif; ?>
+        <?php } ?>
     </p>
 </div>
 
@@ -409,7 +445,7 @@ footer {
             <option value="size_desc" <?php echo ($sort == 'size' && $order == 'desc') ? 'selected' : ''; ?>>Ukuran (Besar-Kecil)</option>
         </select>
 
-        <button onclick="location.href='?<?php echo buildQuery(['sort'=>null,'order'=>null,'filter'=>null]); ?>'"
+        <button onclick="location.href='?<?php echo buildQuery(['sort' => null, 'order' => null, 'filter' => null]); ?>'"
                 style="padding: 8px 15px; background: #00c853; color: white; border: none; border-radius: 5px; cursor: pointer;">
             🔄 Reset
         </button>
@@ -421,27 +457,27 @@ footer {
 </div>
 
 <div class="gallery-container" id="galleryContainer">
-    <?php if (count($photos) === 0): ?>
+    <?php if (count($photos) === 0) { ?>
         <div class="no-results">
             <h3>Tidak ada foto untuk filter ini</h3>
             <p style="opacity:.85;">Pastikan nama file diawali <b>1_</b> untuk Leyangan atau <b>2_</b> untuk Pak Tommy.</p>
         </div>
-    <?php endif; ?>
+    <?php } ?>
 
-    <?php foreach ($photos as $photo): ?>
+    <?php foreach ($photos as $photo) { ?>
     <div class="photo-card"
          data-filename="<?php echo strtolower($photo['filename']); ?>"
          data-owner="<?php echo strtolower($photo['owner']); ?>"
-         onclick="openModal('<?php echo $photo['url']; ?>', '<?php echo htmlspecialchars($photo['filename'], ENT_QUOTES); ?>', '<?php echo $photo['size']; ?> KB', '<?php echo htmlspecialchars($photo['modified'], ENT_QUOTES); ?>', '<?php echo htmlspecialchars($photo['owner'], ENT_QUOTES); ?>')">
+         onclick="openModal('<?php echo $photo['url']; ?>', '<?php echo htmlspecialchars($photo['filename'], ENT_QUOTES); ?>', '<?php echo (int) $photo['size']; ?> KB', '<?php echo htmlspecialchars($photo['modified'], ENT_QUOTES); ?>', '<?php echo htmlspecialchars($photo['owner'], ENT_QUOTES); ?>')">
         <img src="<?php echo $photo['url']; ?>" alt="<?php echo htmlspecialchars($photo['filename']); ?>" class="photo-thumbnail">
         <div class="photo-info">
-            <div class="badge"><?php echo htmlspecialchars($photo['owner']); ?><?php echo $photo['id'] ? " (ID: ".$photo['id'].")" : ""; ?></div>
+            <div class="badge"><?php echo htmlspecialchars($photo['owner']); ?><?php echo $photo['id'] ? ' (ID: '.$photo['id'].')' : ''; ?></div>
             <h3><?php echo htmlspecialchars($photo['filename']); ?></h3>
             <p>📅 <?php echo htmlspecialchars($photo['modified']); ?></p>
-            <p>💾 <?php echo (int)$photo['size']; ?> KB</p>
+            <p>💾 <?php echo (int) $photo['size']; ?> KB</p>
         </div>
     </div>
-    <?php endforeach; ?>
+    <?php } ?>
 </div>
 
 <div id="noResults" class="no-results" style="display: none;">
