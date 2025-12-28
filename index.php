@@ -1,11 +1,8 @@
 <?php
-declare(strict_types=1);
-
-// =========================
-// CONFIG
-// =========================
+// Set timezone ke Jakarta Indonesia
 date_default_timezone_set('Asia/Jakarta');
 
+// Folder penyimpanan foto
 $folder = __DIR__.'/foto/';
 
 // Cek folder
@@ -20,42 +17,25 @@ if (!$files) {
 }
 
 // =========================
-// HELPERS
+// FILTER (id -> label)
+// id=1 => Leyangan, id=2 => Pak Tommy
+// Deteksi id dari AWAL nama file: "1_", "2-", "1 " dll.
 // =========================
-function h(string $s): string
-{
-    return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
-}
+$filter = isset($_GET['filter']) ? (int) $_GET['filter'] : 0; // 0=semua
+$filterMap = [
+    1 => 'Leyangan',
+    2 => 'Pak Tommy',
+];
 
-/**
- * Judul diambil dari nama file sebelum underscore pertama "_".
- * Contoh: "pak-tommy_2025-01-01_10-00-00.jpg" => "Pak Tommy"
- * Tanda "-" dianggap spasi.
- */
-function getTitleFromFilename(string $filename): string
+function getPhotoIdFromFilename(string $filename): int
 {
-    $base = explode('_', $filename, 2)[0];
-    $title = str_replace('-', ' ', $base);
-    $title = trim($title);
-    if ($title === '') {
-        return 'Tidak diketahui';
+    if (preg_match('/^([12])(?:[_\-\s\.]|$)/', $filename, $m)) {
+        return (int) $m[1];
     }
 
-    return ucwords($title);
+    return 0;
 }
 
-/**
- * Key judul untuk query param (lowercase).
- */
-function getTitleKey(string $title): string
-{
-    return strtolower(trim($title));
-}
-
-/**
- * Ambil timestamp dari pola: YYYY-MM-DD_HH-MM-SS di filename.
- * contoh: xxx_2025-01-01_10-11-12.jpg.
- */
 function getTimestampFromFilename(string $filename): ?int
 {
     if (preg_match('/(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})/', $filename, $m)) {
@@ -68,73 +48,14 @@ function getTimestampFromFilename(string $filename): ?int
     return null;
 }
 
-function buildQuery(array $overrides = []): string
-{
-    $params = array_merge($_GET, $overrides);
-    foreach ($params as $k => $v) {
-        if ($v === null || $v === '') {
-            unset($params[$k]);
-        }
-    }
-
-    return http_build_query($params);
-}
-
-function sortPhotos(array &$photos, string $sort, string $order): void
-{
-    usort($photos, function ($a, $b) use ($sort, $order) {
-        $result = 0;
-
-        if ($sort === 'name') {
-            $result = strcmp($a['filename'], $b['filename']);
-        } elseif ($sort === 'size') {
-            $result = $a['size'] <=> $b['size'];
-        } else { // date
-            $result = $a['modified_ts'] <=> $b['modified_ts'];
-        }
-
-        // default: desc untuk date, tapi kita pakai order dari URL
-        return ($order === 'asc') ? $result : -$result;
-    });
-}
-
-// =========================
-// PARAMS
-// =========================
-$filter = isset($_GET['filter']) ? strtolower(trim((string) $_GET['filter'])) : ''; // ''=semua
-
-$sort = isset($_GET['sort']) ? (string) $_GET['sort'] : 'date';    // date|name|size
-$order = isset($_GET['order']) ? (string) $_GET['order'] : 'desc'; // asc|desc
-
-$allowedSort = ['date', 'name', 'size'];
-$allowedOrder = ['asc', 'desc'];
-if (!in_array($sort, $allowedSort, true)) {
-    $sort = 'date';
-}
-if (!in_array($order, $allowedOrder, true)) {
-    $order = 'desc';
-}
-
-// =========================
-// BUILD DATA
-// =========================
-// Urutkan file raw berdasar modified terbaru dulu (biar terasa responsif)
-usort($files, fn ($a, $b) => filemtime($b) - filemtime($a));
-
-$availableTitles = []; // key => label
+// Siapkan data untuk setiap foto (sekaligus apply filter server-side)
 $photos = [];
-
 foreach ($files as $file) {
     $filename = basename($file);
 
-    $title = getTitleFromFilename($filename);
-    $titleKey = getTitleKey($title);
+    $photoId = getPhotoIdFromFilename($filename);
 
-    // Simpan title unik untuk dropdown (otomatis)
-    $availableTitles[$titleKey] = $title;
-
-    // Apply filter server-side
-    if ($filter !== '' && $filter !== $titleKey) {
+    if ($filter !== 0 && $photoId !== $filter) {
         continue;
     }
 
@@ -145,22 +66,51 @@ foreach ($files as $file) {
     $ts = $nameTs ?? filemtime($file);
 
     $photos[] = [
-        'title' => $title,
-        'title_key' => $titleKey,
+        'id' => $photoId,
+        'owner' => $filterMap[$photoId] ?? 'Tidak diketahui',
         'filename' => $filename,
         'url' => $url,
-        'size' => (int) $filesize,
+        'size' => $filesize,
         'modified' => date('d M Y, H:i', $ts),
-        'modified_ts' => (int) $ts,
+        'modified_ts' => $ts,
     ];
 }
 
-// Sorting sesuai pilihan user
+// Ambil parameter sorting dari URL
+$sort = isset($_GET['sort']) ? $_GET['sort'] : 'date';
+$order = isset($_GET['order']) ? $_GET['order'] : 'desc';
+
+function sortPhotos(&$photos, $sort, $order)
+{
+    usort($photos, function ($a, $b) use ($sort, $order) {
+        $result = 0;
+
+        if ($sort === 'name') {
+            $result = strcmp($a['filename'], $b['filename']);
+        } elseif ($sort === 'size') {
+            $result = $a['size'] - $b['size'];
+        } elseif ($sort === 'date') {
+            $result = $b['modified_ts'] - $a['modified_ts'];
+        }
+
+        return ($order === 'asc') ? -$result : $result;
+    });
+}
+
 sortPhotos($photos, $sort, $order);
 $totalPhotos = count($photos);
 
-// Untuk label filter di header
-$filterLabel = ($filter !== '' && isset($availableTitles[$filter])) ? $availableTitles[$filter] : $filter;
+function buildQuery(array $overrides = []): string
+{
+    $params = array_merge($_GET, $overrides);
+    foreach ($params as $k => $v) {
+        if ($v === null) {
+            unset($params[$k]);
+        }
+    }
+
+    return http_build_query($params);
+}
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -171,6 +121,7 @@ $filterLabel = ($filter !== '' && isset($availableTitles[$filter])) ? $available
 
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;600&display=swap');
+
 * { box-sizing: border-box; }
 
 body{
@@ -220,7 +171,6 @@ body{
     margin-left:8px;
 }
 .search-box input::placeholder{ color:rgba(255,255,255,.7); }
-
 .sort-options{
     display:flex;
     align-items:center;
@@ -286,7 +236,7 @@ body{
 
 /* MODAL */
 .modal{
-    display:none;
+    display:none; /* default tutup */
     position:fixed;
     inset:0;
     background:rgba(0,0,0,.92);
@@ -320,7 +270,7 @@ body{
     gap:10px;
 }
 
-/* tombol rotate mirip download */
+/* tombol rotate dibuat mirip download */
 .action-btn{
     text-decoration:none;
     color:#fff;
@@ -344,6 +294,8 @@ body{
     padding:12px;
     overflow:auto;
 }
+
+/* Base: gambar landscape/horizontal */
 .modal-content img{
     display:block;
     width:auto;
@@ -354,8 +306,11 @@ body{
     border-radius:10px;
     transition:transform .2s ease;
 }
+
+/* Saat dipaksa "vertical" (rotate 90deg), batasi lebih ketat di laptop biar gak kegedean */
 .modal-content img.is-vertical{
     transform:rotate(90deg);
+    /* setelah rotate, tinggi efektif jadi lebar, jadi kita kecilkan batasnya */
     max-width:min(80vw, 900px);
     max-height:calc(100vh - 220px);
 }
@@ -407,11 +362,14 @@ footer{
         padding:14px;
     }
     .photo-thumbnail{ height:140px; }
+
     .modal-content img{ max-height:calc(100vh - 190px); }
+
     .modal-content img.is-vertical{
         max-width:92vw;
         max-height:calc(100vh - 240px);
     }
+
     .modal-info h3{ font-size:15px; }
     .modal-info p{ font-size:12px; }
 }
@@ -422,9 +380,9 @@ footer{
 <div class="header">
     <h1>📷 Galeri Foto</h1>
     <p>
-        Total: <?php echo (int) $totalPhotos; ?> foto
-        <?php if ($filter !== '') { ?>
-            • Filter: <b><?php echo h($filterLabel ?: 'Unknown'); ?></b>
+        Total: <?php echo $totalPhotos; ?> foto
+        <?php if ($filter !== 0) { ?>
+            • Filter: <b><?php echo htmlspecialchars($filterMap[$filter] ?? 'Unknown'); ?></b>
         <?php } ?>
     </p>
 </div>
@@ -438,36 +396,27 @@ footer{
     <div class="sort-options">
         <span>Filter:</span>
         <select id="filterSelect" onchange="applyFilter()">
-            <option value="" <?php echo ($filter === '') ? 'selected' : ''; ?>>Semua</option>
-            <?php
-            // urutkan judul biar rapi (A-Z)
-            asort($availableTitles);
-foreach ($availableTitles as $key => $label) { ?>
-                <option value="<?php echo h($key); ?>" <?php echo ($filter === $key) ? 'selected' : ''; ?>>
-                    <?php echo h($label); ?>
-                </option>
-            <?php } ?>
+            <option value="0" <?php echo ($filter === 0) ? 'selected' : ''; ?>>Semua</option>
+            <option value="1" <?php echo ($filter === 1) ? 'selected' : ''; ?>>Leyangan</option>
+            <option value="2" <?php echo ($filter === 2) ? 'selected' : ''; ?>>Pak Tommy</option>
         </select>
 
         <span>Urutkan:</span>
         <select id="sortSelect" onchange="sortPhotos()">
-            <option value="date_desc" <?php echo ($sort === 'date' && $order === 'desc') ? 'selected' : ''; ?>>Terbaru</option>
-            <option value="date_asc"  <?php echo ($sort === 'date' && $order === 'asc') ? 'selected' : ''; ?>>Terlama</option>
-            <option value="name_asc"  <?php echo ($sort === 'name' && $order === 'asc') ? 'selected' : ''; ?>>Nama (A-Z)</option>
-            <option value="name_desc" <?php echo ($sort === 'name' && $order === 'desc') ? 'selected' : ''; ?>>Nama (Z-A)</option>
-            <option value="size_asc"  <?php echo ($sort === 'size' && $order === 'asc') ? 'selected' : ''; ?>>Ukuran (Kecil-Besar)</option>
-            <option value="size_desc" <?php echo ($sort === 'size' && $order === 'desc') ? 'selected' : ''; ?>>Ukuran (Besar-Kecil)</option>
+            <option value="date_desc" <?php echo ($sort == 'date' && $order == 'desc') ? 'selected' : ''; ?>>Terbaru</option>
+            <option value="date_asc" <?php echo ($sort == 'date' && $order == 'asc') ? 'selected' : ''; ?>>Terlama</option>
+            <option value="name_asc" <?php echo ($sort == 'name' && $order == 'asc') ? 'selected' : ''; ?>>Nama (A-Z)</option>
+            <option value="name_desc" <?php echo ($sort == 'name' && $order == 'desc') ? 'selected' : ''; ?>>Nama (Z-A)</option>
+            <option value="size_asc" <?php echo ($sort == 'size' && $order == 'asc') ? 'selected' : ''; ?>>Ukuran (Kecil-Besar)</option>
+            <option value="size_desc" <?php echo ($sort == 'size' && $order == 'desc') ? 'selected' : ''; ?>>Ukuran (Besar-Kecil)</option>
         </select>
 
-        <button
-            onclick="location.href='?<?php echo h(buildQuery(['sort' => null, 'order' => null, 'filter' => null])); ?>'"
-            style="padding: 8px 15px; background: #00c853; color: white; border: none; border-radius: 5px; cursor: pointer;">
+        <button onclick="location.href='?<?php echo buildQuery(['sort' => null, 'order' => null, 'filter' => null]); ?>'"
+                style="padding: 8px 15px; background: #00c853; color: white; border: none; border-radius: 5px; cursor: pointer;">
             🔄 Reset
         </button>
-
-        <button
-            onclick="location.reload()"
-            style="padding: 8px 15px; background: rgba(255,255,255,0.15); color: white; border: none; border-radius: 5px; cursor: pointer;">
+        <button onclick="location.reload()"
+                style="padding: 8px 15px; background: rgba(255,255,255,0.15); color: white; border: none; border-radius: 5px; cursor: pointer;">
             ⟳ Refresh
         </button>
     </div>
@@ -477,27 +426,20 @@ foreach ($availableTitles as $key => $label) { ?>
     <?php if (count($photos) === 0) { ?>
         <div class="no-results">
             <h3>Tidak ada foto untuk filter ini</h3>
-            <p style="opacity:.85;">
-                Format nama file: <b>judul_YYYY-MM-DD_HH-MM-SS.jpg</b><br>
-                Contoh: <b>pak-tommy_2025-01-01_10-00-00.jpg</b> (judul pakai "-" untuk spasi)
-            </p>
+            <p style="opacity:.85;">Pastikan nama file diawali <b>1_</b> untuk Leyangan atau <b>2_</b> untuk Pak Tommy.</p>
         </div>
     <?php } ?>
 
     <?php foreach ($photos as $photo) { ?>
         <div class="photo-card"
-             data-filename="<?php echo h(strtolower($photo['filename'])); ?>"
-             data-owner="<?php echo h(strtolower($photo['title'])); ?>"
-             onclick="openModal('<?php echo h($photo['url']); ?>',
-                               '<?php echo h($photo['filename']); ?>',
-                               '<?php echo (int) $photo['size']; ?> KB',
-                               '<?php echo h($photo['modified']); ?>',
-                               '<?php echo h($photo['title']); ?>')">
-            <img src="<?php echo h($photo['url']); ?>" alt="<?php echo h($photo['filename']); ?>" class="photo-thumbnail">
+             data-filename="<?php echo strtolower($photo['filename']); ?>"
+             data-owner="<?php echo strtolower($photo['owner']); ?>"
+             onclick="openModal('<?php echo $photo['url']; ?>', '<?php echo htmlspecialchars($photo['filename'], ENT_QUOTES); ?>', '<?php echo (int) $photo['size']; ?> KB', '<?php echo htmlspecialchars($photo['modified'], ENT_QUOTES); ?>', '<?php echo htmlspecialchars($photo['owner'], ENT_QUOTES); ?>')">
+            <img src="<?php echo $photo['url']; ?>" alt="<?php echo htmlspecialchars($photo['filename']); ?>" class="photo-thumbnail">
             <div class="photo-info">
-                <div class="badge"><?php echo h($photo['title']); ?></div>
-                <h3><?php echo h($photo['filename']); ?></h3>
-                <p>📅 <?php echo h($photo['modified']); ?></p>
+                <div class="badge"><?php echo htmlspecialchars($photo['owner']); ?><?php echo $photo['id'] ? ' (ID: '.$photo['id'].')' : ''; ?></div>
+                <h3><?php echo htmlspecialchars($photo['filename']); ?></h3>
+                <p>📅 <?php echo htmlspecialchars($photo['modified']); ?></p>
                 <p>💾 <?php echo (int) $photo['size']; ?> KB</p>
             </div>
         </div>
@@ -528,7 +470,7 @@ foreach ($availableTitles as $key => $label) { ?>
     </div>
 </div>
 
-<footer>© Monitor Kamera Aeroponik v2.2</footer>
+<footer>© Monitor Kamera Aeroponik v2.1</footer>
 
 <script>
 const modal = document.getElementById('photoModal');
@@ -539,6 +481,7 @@ let isVertical = false;
 
 // Buka modal
 function openModal(url, filename, size, modified, owner) {
+    // reset rotate setiap buka foto baru
     isVertical = false;
     modalImage.classList.remove('is-vertical');
 
@@ -562,14 +505,14 @@ function closeModal() {
     modalImage.classList.remove('is-vertical');
 }
 
-// Rotate 2 mode: horizontal <-> vertical
+// Toggle rotate hanya 2 mode: horizontal <-> vertical
 rotateBtn.addEventListener('click', function(e) {
     e.stopPropagation();
     isVertical = !isVertical;
     modalImage.classList.toggle('is-vertical', isVertical);
 });
 
-// Filter client-side (search box)
+// Filter client-side
 function filterPhotos() {
     const searchInput = document.getElementById('searchInput').value.toLowerCase();
     const photoCards = document.querySelectorAll('.photo-card');
@@ -578,10 +521,7 @@ function filterPhotos() {
 
     photoCards.forEach(card => {
         const filename = card.getAttribute('data-filename');
-        const owner = card.getAttribute('data-owner');
-        const hay = (filename + ' ' + owner);
-
-        if (hay.includes(searchInput)) {
+        if (filename.includes(searchInput)) {
             card.style.display = '';
             hasResults = true;
         } else {
@@ -592,26 +532,22 @@ function filterPhotos() {
     noResults.style.display = hasResults ? 'none' : 'block';
 }
 
-// Sort (server-side via reload)
+// Sort
 function sortPhotos() {
     const sortSelect = document.getElementById('sortSelect');
     const [sort, order] = sortSelect.value.split('_');
     const url = new URL(window.location.href);
-
     url.searchParams.set('sort', sort);
     url.searchParams.set('order', order);
-
     window.location.href = url.toString();
 }
 
-// Filter dropdown (server-side via reload)
+// Filter dropdown
 function applyFilter() {
     const filterValue = document.getElementById('filterSelect').value;
     const url = new URL(window.location.href);
-
-    if (!filterValue) url.searchParams.delete('filter');
+    if (filterValue === "0") url.searchParams.delete('filter');
     else url.searchParams.set('filter', filterValue);
-
     window.location.href = url.toString();
 }
 
