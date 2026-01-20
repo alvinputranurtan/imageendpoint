@@ -268,3 +268,26 @@ footer{
   .modal-info h3{ font-size:15px; }
   .modal-info p{ font-size:12px; }
 }
+
+
+.show-more-wrap{
+  max-width: 1200px;
+  margin: 14px auto 24px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.show-more-btn{
+  border: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.show-more-info{
+  opacity: .75;
+  font-size: 14px;
+}

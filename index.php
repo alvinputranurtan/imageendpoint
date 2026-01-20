@@ -235,6 +235,13 @@ function buildQuery(array $overrides = []): string
     <?php } ?>
 </div>
 
+<div class="show-more-wrap" id="showMoreWrap" style="display:none;">
+    <button type="button" id="showMoreBtn" class="show-more-btn">Show more</button>
+    <div class="show-more-info" id="showMoreInfo"></div>
+</div>
+
+<div id="noResults" class="no-results" style="display:none;"></div>
+
 <div id="noResults" class="no-results" style="display:none;">
     <h3>Tidak ada foto yang cocok dengan pencarian Anda</h3>
 </div>

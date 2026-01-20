@@ -117,3 +117,102 @@ document.getElementById('resetBtn').addEventListener('click', () => {
   window.location.href = resetUrl;
 });
 document.getElementById('refreshBtn').addEventListener('click', () => location.reload());
+
+(function () {
+  const PAGE_SIZE = 15;
+
+  const gallery = document.getElementById("galleryContainer");
+  if (!gallery) return;
+
+  const cardsAll = Array.from(gallery.querySelectorAll(".photo-card"));
+
+  const searchInput = document.getElementById("searchInput");
+  const noResultsEl = document.getElementById("noResults");
+
+  const showMoreWrap = document.getElementById("showMoreWrap");
+  const showMoreBtn = document.getElementById("showMoreBtn");
+  const showMoreInfo = document.getElementById("showMoreInfo");
+
+  let currentLimit = PAGE_SIZE;
+
+  function getSearchQuery() {
+    return (searchInput?.value || "").trim().toLowerCase();
+  }
+
+  // menentukan kartu mana yang "eligible" (match pencarian)
+  function getEligibleCards() {
+    const q = getSearchQuery();
+    if (!q) return cardsAll;
+
+    return cardsAll.filter((card) => {
+      const filename = (card.dataset.filename || "").toLowerCase();       // sudah lowercase dari PHP
+      const owner = (card.dataset.owner || "").toLowerCase();
+      const raw = (card.dataset.filenameRaw || "").toLowerCase();
+      return filename.includes(q) || owner.includes(q) || raw.includes(q);
+    });
+  }
+
+  function render() {
+    const eligible = getEligibleCards();
+
+    // Sembunyikan semua dulu
+    cardsAll.forEach((c) => {
+      c.style.display = "none";
+    });
+
+    // Tampilkan yang eligible sesuai limit
+    eligible.forEach((c, idx) => {
+      if (idx < currentLimit) c.style.display = "";
+    });
+
+    // noResults
+    const hasAny = eligible.length > 0;
+    if (noResultsEl) noResultsEl.style.display = hasAny ? "none" : "block";
+
+    // show more
+    if (!showMoreWrap || !showMoreBtn) return;
+
+    if (!hasAny) {
+      showMoreWrap.style.display = "none";
+      return;
+    }
+
+    const shownNow = Math.min(currentLimit, eligible.length);
+    const canShowMore = shownNow < eligible.length;
+
+    showMoreWrap.style.display = "flex";
+    showMoreBtn.style.display = canShowMore ? "inline-flex" : "none";
+
+    if (showMoreInfo) {
+      showMoreInfo.textContent = `Menampilkan ${shownNow} dari ${eligible.length} foto`;
+    }
+  }
+
+  function resetLimit() {
+    currentLimit = PAGE_SIZE;
+  }
+
+  // Show more click
+  if (showMoreBtn) {
+    showMoreBtn.addEventListener("click", () => {
+      currentLimit += PAGE_SIZE;
+      render();
+    });
+  }
+
+  // Search input
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      resetLimit();
+      render();
+    });
+  }
+
+  // Jika kamu punya tombol refresh/reset/sort/filter yang reload halaman,
+  // pagination akan otomatis jalan lagi saat load. Kalau ada logic lain yang
+  // mengubah display card via JS, panggil render() setelahnya.
+
+  // init
+  resetLimit();
+  render();
+})();
