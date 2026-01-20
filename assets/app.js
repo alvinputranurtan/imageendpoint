@@ -139,52 +139,65 @@ document.getElementById('refreshBtn').addEventListener('click', () => location.r
     return (searchInput?.value || "").trim().toLowerCase();
   }
 
-  // menentukan kartu mana yang "eligible" (match pencarian)
   function getEligibleCards() {
     const q = getSearchQuery();
     if (!q) return cardsAll;
 
     return cardsAll.filter((card) => {
-      const filename = (card.dataset.filename || "").toLowerCase();       // sudah lowercase dari PHP
+      const filename = (card.dataset.filename || "").toLowerCase();
       const owner = (card.dataset.owner || "").toLowerCase();
       const raw = (card.dataset.filenameRaw || "").toLowerCase();
       return filename.includes(q) || owner.includes(q) || raw.includes(q);
     });
   }
 
+  function ensureImgLoaded(card) {
+    const img = card.querySelector("img.photo-thumbnail");
+    if (!img) return;
+
+    // kalau sudah pernah di-load, skip
+    if (img.dataset.loaded === "1") return;
+
+    const realSrc = img.getAttribute("data-src");
+    if (!realSrc) return;
+
+    img.src = realSrc;
+    img.dataset.loaded = "1";
+  }
+
   function render() {
     const eligible = getEligibleCards();
 
-    // Sembunyikan semua dulu
-    cardsAll.forEach((c) => {
-      c.style.display = "none";
-    });
+    // Hide semua kartu
+    cardsAll.forEach((c) => (c.style.display = "none"));
 
-    // Tampilkan yang eligible sesuai limit
+    // Show sesuai limit + load image hanya untuk yang ditampilkan
     eligible.forEach((c, idx) => {
-      if (idx < currentLimit) c.style.display = "";
+      if (idx < currentLimit) {
+        c.style.display = "";
+        ensureImgLoaded(c); // <-- ini yang bikin cuma yang tampil yang di-download
+      }
     });
 
-    // noResults
+    // no results
     const hasAny = eligible.length > 0;
     if (noResultsEl) noResultsEl.style.display = hasAny ? "none" : "block";
 
-    // show more
-    if (!showMoreWrap || !showMoreBtn) return;
+    // show more UI
+    if (showMoreWrap && showMoreBtn) {
+      if (!hasAny) {
+        showMoreWrap.style.display = "none";
+      } else {
+        const shownNow = Math.min(currentLimit, eligible.length);
+        const canShowMore = shownNow < eligible.length;
 
-    if (!hasAny) {
-      showMoreWrap.style.display = "none";
-      return;
-    }
+        showMoreWrap.style.display = "flex";
+        showMoreBtn.style.display = canShowMore ? "inline-flex" : "none";
 
-    const shownNow = Math.min(currentLimit, eligible.length);
-    const canShowMore = shownNow < eligible.length;
-
-    showMoreWrap.style.display = "flex";
-    showMoreBtn.style.display = canShowMore ? "inline-flex" : "none";
-
-    if (showMoreInfo) {
-      showMoreInfo.textContent = `Menampilkan ${shownNow} dari ${eligible.length} foto`;
+        if (showMoreInfo) {
+          showMoreInfo.textContent = `Menampilkan ${shownNow} dari ${eligible.length} foto`;
+        }
+      }
     }
   }
 
@@ -207,10 +220,6 @@ document.getElementById('refreshBtn').addEventListener('click', () => location.r
       render();
     });
   }
-
-  // Jika kamu punya tombol refresh/reset/sort/filter yang reload halaman,
-  // pagination akan otomatis jalan lagi saat load. Kalau ada logic lain yang
-  // mengubah display card via JS, panggil render() setelahnya.
 
   // init
   resetLimit();

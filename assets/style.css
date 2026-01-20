@@ -291,3 +291,9 @@ footer{
   opacity: .75;
   font-size: 14px;
 }
+
+.photo-thumbnail {
+  background: #f1f1f1;
+  min-height: 160px; /* sesuaikan */
+  display: block;
+}

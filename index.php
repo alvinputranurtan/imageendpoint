@@ -222,9 +222,14 @@ function buildQuery(array $overrides = []): string
              data-size="<?php echo (int) $photo['size']; ?> KB"
              data-modified="<?php echo htmlspecialchars($photo['modified'], ENT_QUOTES); ?>"
              data-owner="<?php echo htmlspecialchars($photo['owner'], ENT_QUOTES); ?>">
-            <img src="<?php echo $photo['url']; ?>"
-                 alt="<?php echo htmlspecialchars($photo['filename']); ?>"
-                 class="photo-thumbnail">
+<img
+    src=""
+    data-src="<?php echo htmlspecialchars($photo['url'], ENT_QUOTES); ?>"
+    alt="<?php echo htmlspecialchars($photo['filename']); ?>"
+    class="photo-thumbnail"
+    loading="lazy"
+    decoding="async">
+
             <div class="photo-info">
                 <div class="badge"><?php echo htmlspecialchars($photo['owner']); ?></div>
                 <h3><?php echo htmlspecialchars($photo['filename']); ?></h3>
